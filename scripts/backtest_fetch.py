@@ -60,6 +60,14 @@ def fetch_universe():
         if i.get("asset_class") != "bond" and not i.get("is_money_market", False)
     ]
     print(f"Universo core: {len(instruments)} totali -> {len(selected)} dopo esclusione bond/money-market")
+
+    # LIMIT_TICKERS: variabile d'ambiente opzionale per un run di test su
+    # campione ridotto (es. LIMIT_TICKERS=25), senza toccare la logica.
+    limit = os.environ.get("LIMIT_TICKERS")
+    if limit:
+        selected = selected[: int(limit)]
+        print(f"[TEST] Limitato a {len(selected)} strumenti (LIMIT_TICKERS={limit})")
+
     return selected
 
 
