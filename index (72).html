@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>core-backtest — Dataset Trade Storici</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+  :root {
+    --bg: #ffffff;
+    --ink: #14181f;
+    --ink-soft: #57606a;
+    --line: #e3e6ea;
+    --line-strong: #c8ccd2;
+    --accent: #0969da;
+    --accent-soft: #dcedff;
+    --warn: #9a6700;
+    --warn-soft: #fff8e6;
+    --green: #1a7f37;
+    --green-soft: #dcfce7;
+    --red: #cf222e;
+    --red-soft: #ffe0e0;
+    --sans: 'Segoe UI', system-ui, sans-serif;
+    --mono: 'SFMono-Regular', Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; font-family: var(--sans); background: var(--bg); color: var(--ink);
+    font-size: 14px; padding: 24px 32px 60px;
+  }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  .sub { color: var(--ink-soft); font-size: 13px; margin-bottom: 18px; }
+  .toolbar { display: flex; gap: 10px; margin-bottom: 22px; }
+  .action {
+    font-family: var(--sans); font-size: 13px; font-weight: 600;
+    padding: 9px 16px; border-radius: 7px; border: 1px solid var(--line-strong);
+    background: #fff; color: var(--ink); cursor: pointer;
+  }
+  .action.primary { background: #14532d; color: #fff; border-color: #14532d; }
+  .action:disabled { opacity: .5; cursor: not-allowed; }
+
+  .stats-row { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 22px; }
+  .stat-card {
+    border: 1px solid var(--line); border-radius: 10px; padding: 14px 18px;
+    min-width: 130px;
+  }
+  .stat-card .n { font-size: 22px; font-weight: 700; }
+  .stat-card .l { font-size: 11px; color: var(--ink-soft); text-transform: uppercase; letter-spacing: .03em; margin-top: 2px; }
+  .stat-card.win .n { color: var(--green); }
+  .stat-card.loss .n { color: var(--red); }
+
+  .tier-breakdown { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 22px; }
+  .tier-card {
+    border: 1px solid var(--line); border-radius: 10px; padding: 12px 16px; min-width: 160px;
+    background: #fbfcfd;
+  }
+  .tier-card .tier-name { font-size: 12px; font-weight: 700; margin-bottom: 6px; }
+  .tier-card .tier-row { display: flex; justify-content: space-between; font-size: 12px; color: var(--ink-soft); margin-top: 2px; }
+  .tier-card .tier-row b { color: var(--ink); }
+
+  .filters { display: flex; gap: 14px; flex-wrap: wrap; align-items: flex-end; padding: 14px 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); margin-bottom: 14px; }
+  .filter-group { display: flex; flex-direction: column; gap: 4px; }
+  .filter-group label { font-size: 10px; color: var(--ink-soft); text-transform: uppercase; letter-spacing: .03em; }
+  .filter-group input, .filter-group select {
+    font-family: var(--sans); font-size: 13px; padding: 7px 10px;
+    border: 1px solid var(--line-strong); border-radius: 6px; min-width: 150px; background: #fff;
+  }
+  #reset-filters { font-size: 12px; color: var(--accent); cursor: pointer; text-decoration: underline; align-self: center; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  thead th {
+    text-align: left; padding: 8px 10px; font-size: 10.5px; text-transform: uppercase;
+    letter-spacing: .03em; color: var(--ink-soft); border-bottom: 1px solid var(--line-strong);
+    cursor: pointer; white-space: nowrap; background: #fbfcfd; position: sticky; top: 0;
+  }
+  tbody td { padding: 7px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  tbody tr:hover { background: #fbfcfd; }
+  td.mono { font-family: var(--mono); }
+  .badge {
+    display: inline-block; padding: 2px 9px; border-radius: 10px; font-size: 11px; font-weight: 600;
+  }
+  .badge.win { background: var(--green-soft); color: var(--green); }
+  .badge.loss { background: var(--red-soft); color: var(--red); }
+  .badge.tier-buy1 { background: var(--green-soft); color: var(--green); }
+  .badge.tier-buy2 { background: var(--accent-soft); color: var(--accent); }
+  .badge.tier-buy3 { background: #f1e6ff; color: #6e40c9; }
+  .badge.tier-exit1 { background: #ffe8d6; color: #bc4c00; }
+  .badge.tier-exit2 { background: var(--red-soft); color: var(--red); }
+
+  .empty-state { text-align: center; padding: 60px 0; color: var(--ink-soft); }
+  .table-wrap { max-height: 640px; overflow-y: auto; border: 1px solid var(--line); border-radius: 8px; }
+  footer { margin-top: 20px; font-size: 11.5px; color: var(--ink-soft); }
+</style>
+</head>
+<body>
+
+<h1>core-backtest — Dataset Trade Storici</h1>
+<div class="sub" id="header-sub">Backtest motore di segnale su tutto l'universo core (escl. bond/money-market) · Caricamento…</div>
+
+<div class="toolbar">
+  <button class="action primary" id="export-excel">Esporta Excel</button>
+  <button class="action" id="rules-pdf" disabled title="In arrivo — nessun regolamento operativo ancora definito per questa pagina">Regole (PDF) — in arrivo</button>
+</div>
+
+<div class="stats-row" id="stats-row"></div>
+<div class="tier-breakdown" id="tier-breakdown"></div>
+
+<div class="filters">
+  <div class="filter-group">
+    <label>Cerca</label>
+    <input type="text" id="f-search" placeholder="Ticker...">
+  </div>
+  <div class="filter-group">
+    <label>Tier Entrata</label>
+    <select id="f-entry-tier">
+      <option value="">Tutti</option>
+      <option value="BUY1">BUY1</option>
+      <option value="BUY2">BUY2</option>
+      <option value="BUY3">BUY3</option>
+    </select>
+  </div>
+  <div class="filter-group">
+    <label>Tier Uscita</label>
+    <select id="f-exit-tier">
+      <option value="">Tutti</option>
+      <option value="EXIT1">EXIT1</option>
+      <option value="EXIT2">EXIT2</option>
+    </select>
+  </div>
+  <div class="filter-group">
+    <label>Esito</label>
+    <select id="f-outcome">
+      <option value="">Tutti</option>
+      <option value="win">Vincenti</option>
+      <option value="loss">Perdenti</option>
+    </select>
+  </div>
+  <a id="reset-filters">Azzera filtri</a>
+</div>
+
+<div class="table-wrap">
+  <table id="data-table">
+    <thead>
+      <tr>
+        <th data-key="ticker">Ticker</th>
+        <th data-key="entry_date">Data Entrata</th>
+        <th data-key="exit_date">Data Uscita</th>
+        <th data-key="entry_tier">Tier Entrata</th>
+        <th data-key="exit_tier">Tier Uscita</th>
+        <th data-key="entry_price">Prezzo Entrata</th>
+        <th data-key="exit_price">Prezzo Uscita</th>
+        <th data-key="return_pct">Rendimento</th>
+        <th data-key="days_held">Giorni</th>
+        <th data-key="rsi">RSI Entrata</th>
+        <th data-key="er">ER Entrata</th>
+      </tr>
+    </thead>
+    <tbody id="table-body"></tbody>
+  </table>
+  <div class="empty-state" id="empty-state" style="display:none;">Nessun trade corrisponde ai filtri selezionati.</div>
+</div>
+
+<footer id="footer">—</footer>
+
+<script>
+let allTrades = [];
+let meta = {};
+let sortKey = 'entry_date', sortDir = -1;
+
+const els = {
+  search: document.getElementById('f-search'),
+  entryTier: document.getElementById('f-entry-tier'),
+  exitTier: document.getElementById('f-exit-tier'),
+  outcome: document.getElementById('f-outcome'),
+  tbody: document.getElementById('table-body'),
+  table: document.getElementById('data-table'),
+  emptyState: document.getElementById('empty-state'),
+  statsRow: document.getElementById('stats-row'),
+  tierBreakdown: document.getElementById('tier-breakdown'),
+  footer: document.getElementById('footer'),
+  headerSub: document.getElementById('header-sub'),
+};
+
+function tierBadgeClass(tier) {
+  const map = { BUY1: 'tier-buy1', BUY2: 'tier-buy2', BUY3: 'tier-buy3', EXIT1: 'tier-exit1', EXIT2: 'tier-exit2' };
+  return map[tier] || '';
+}
+
+function renderStats() {
+  const total = allTrades.length;
+  const wins = allTrades.filter(t => t.return_pct > 0).length;
+  const losses = allTrades.filter(t => t.return_pct <= 0).length;
+  const winRate = total ? (wins / total * 100).toFixed(1) : '0.0';
+  const avgReturn = total ? (allTrades.reduce((s, t) => s + (t.return_pct || 0), 0) / total).toFixed(2) : '0.00';
+  const avgDays = total ? (allTrades.reduce((s, t) => s + (t.days_held || 0), 0) / total).toFixed(1) : '0.0';
+
+  els.statsRow.innerHTML = `
+    <div class="stat-card"><div class="n">${meta.instruments_scanned ?? '—'}</div><div class="l">Strumenti scansionati</div></div>
+    <div class="stat-card"><div class="n">${total}</div><div class="l">Trade totali (esito noto)</div></div>
+    <div class="stat-card win"><div class="n">${wins}</div><div class="l">Vincenti (${winRate}%)</div></div>
+    <div class="stat-card loss"><div class="n">${losses}</div><div class="l">Perdenti</div></div>
+    <div class="stat-card"><div class="n">${avgReturn}%</div><div class="l">Rendimento medio</div></div>
+    <div class="stat-card"><div class="n">${avgDays}</div><div class="l">Giorni medi detenzione</div></div>
+    <div class="stat-card"><div class="n">${meta.trades_discarded_discontinuity ?? '—'}</div><div class="l">Scartati (discontinuità prezzo)</div></div>
+    <div class="stat-card"><div class="n">${meta.fetch_errors ?? '—'}</div><div class="l">Errori fetch</div></div>
+  `;
+
+  const tiers = ['BUY1', 'BUY2', 'BUY3'];
+  els.tierBreakdown.innerHTML = tiers.map(tier => {
+    const sub = allTrades.filter(t => t.entry_tier === tier);
+    const n = sub.length;
+    const w = sub.filter(t => t.return_pct > 0).length;
+    const wr = n ? (w / n * 100).toFixed(1) : '—';
+    const avgR = n ? (sub.reduce((s, t) => s + (t.return_pct || 0), 0) / n).toFixed(2) : '—';
+    return `<div class="tier-card">
+      <div class="tier-name"><span class="badge ${tierBadgeClass(tier)}">${tier}</span></div>
+      <div class="tier-row"><span>Trade</span><b>${n}</b></div>
+      <div class="tier-row"><span>Win rate</span><b>${wr}%</b></div>
+      <div class="tier-row"><span>Rendimento medio</span><b>${avgR}%</b></div>
+    </div>`;
+  }).join('');
+}
+
+function currentFilters() {
+  return {
+    search: els.search.value.trim().toLowerCase(),
+    entryTier: els.entryTier.value,
+    exitTier: els.exitTier.value,
+    outcome: els.outcome.value,
+  };
+}
+
+function filterTrades(f) {
+  return allTrades.filter(t => {
+    if (f.search && !t.ticker.toLowerCase().includes(f.search)) return false;
+    if (f.entryTier && t.entry_tier !== f.entryTier) return false;
+    if (f.exitTier && t.exit_tier !== f.exitTier) return false;
+    if (f.outcome === 'win' && !(t.return_pct > 0)) return false;
+    if (f.outcome === 'loss' && !(t.return_pct <= 0)) return false;
+    return true;
+  });
+}
+
+function applyFilters() {
+  const f = currentFilters();
+  let rows = filterTrades(f);
+
+  if (sortKey) {
+    rows = rows.slice().sort((a, b) => {
+      let av, bv;
+      if (sortKey === 'rsi') { av = a.features_at_entry?.rsi; bv = b.features_at_entry?.rsi; }
+      else if (sortKey === 'er') { av = a.features_at_entry?.er; bv = b.features_at_entry?.er; }
+      else { av = a[sortKey]; bv = b[sortKey]; }
+      if (av == null) return 1;
+      if (bv == null) return -1;
+      if (typeof av === 'string') return av.localeCompare(bv) * sortDir;
+      return (av - bv) * sortDir;
+    });
+  }
+
+  renderTable(rows);
+}
+
+function renderTable(rows) {
+  if (rows.length === 0) {
+    els.tbody.innerHTML = '';
+    els.emptyState.style.display = 'block';
+    els.table.style.display = 'none';
+    return;
+  }
+  els.emptyState.style.display = 'none';
+  els.table.style.display = '';
+
+  const html = rows.map(t => {
+    const isWin = t.return_pct > 0;
+    const rsi = t.features_at_entry?.rsi;
+    const er = t.features_at_entry?.er;
+    return `<tr>
+      <td class="mono"><b>${t.ticker}</b></td>
+      <td class="mono">${t.entry_date}</td>
+      <td class="mono">${t.exit_date}</td>
+      <td><span class="badge ${tierBadgeClass(t.entry_tier)}">${t.entry_tier}</span></td>
+      <td><span class="badge ${tierBadgeClass(t.exit_tier)}">${t.exit_tier}</span></td>
+      <td class="mono">${t.entry_price != null ? t.entry_price.toFixed(4) : '—'}</td>
+      <td class="mono">${t.exit_price != null ? t.exit_price.toFixed(4) : '—'}</td>
+      <td class="mono"><span class="badge ${isWin ? 'win' : 'loss'}">${t.return_pct != null ? (t.return_pct >= 0 ? '+' : '') + t.return_pct.toFixed(2) + '%' : '—'}</span></td>
+      <td class="mono">${t.days_held ?? '—'}</td>
+      <td class="mono">${rsi != null ? rsi.toFixed(1) : '—'}</td>
+      <td class="mono">${er != null ? (er * 100).toFixed(0) + '%' : '—'}</td>
+    </tr>`;
+  }).join('');
+  els.tbody.innerHTML = html;
+}
+
+function exportExcel() {
+  const f = currentFilters();
+  const rows = filterTrades(f);
+  const data = rows.map(t => ({
+    Ticker: t.ticker,
+    'Data Entrata': t.entry_date,
+    'Data Uscita': t.exit_date,
+    'Tier Entrata': t.entry_tier,
+    'Tier Uscita': t.exit_tier,
+    'Prezzo Entrata': t.entry_price,
+    'Prezzo Uscita': t.exit_price,
+    'Rendimento %': t.return_pct,
+    'Giorni Detenzione': t.days_held,
+    'RSI Entrata': t.features_at_entry?.rsi,
+    'ER Entrata': t.features_at_entry?.er,
+    'Baffetti Entrata': t.features_at_entry?.baff,
+    'AO Entrata': t.features_at_entry?.ao,
+    'Cross Days Entrata': t.features_at_entry?.cross_days,
+    'MM Allineate Entrata': t.features_at_entry?.mm_align,
+    'ATR% Entrata': t.features_at_entry?.atr_pct,
+    'Vol Ratio Entrata': t.features_at_entry?.vol_ratio,
+  }));
+  const ws = XLSX.utils.json_to_sheet(data);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Trade');
+  XLSX.writeFile(wb, 'core_backtest_trade.xlsx');
+}
+
+function resetFilters() {
+  els.search.value = '';
+  els.entryTier.value = '';
+  els.exitTier.value = '';
+  els.outcome.value = '';
+  applyFilters();
+}
+
+[els.search, els.entryTier, els.exitTier, els.outcome].forEach(el => el.addEventListener('input', applyFilters));
+document.getElementById('reset-filters').addEventListener('click', resetFilters);
+document.getElementById('export-excel').addEventListener('click', exportExcel);
+
+document.querySelectorAll('thead th').forEach(th => {
+  th.addEventListener('click', () => {
+    const key = th.dataset.key;
+    if (sortKey === key) { sortDir *= -1; } else { sortKey = key; sortDir = 1; }
+    applyFilters();
+  });
+});
+
+async function loadData() {
+  try {
+    const res = await fetch('data/trades_dataset.json');
+    if (!res.ok) throw new Error('non trovato');
+    const json = await res.json();
+    meta = json;
+    allTrades = json.trades || [];
+
+    const genDate = new Date(json.generated_at).toLocaleString('it-IT');
+    els.headerSub.textContent = `Generato il ${genDate} · storico ${json.history_period || '—'} · esclusi: ${(json.excluded_asset_classes || []).join(', ')}`;
+    els.footer.textContent = `${json.instruments_scanned ?? '—'} strumenti scansionati · ${allTrades.length} trade con esito noto · ${json.trades_discarded_discontinuity ?? 0} scartati per discontinuità di prezzo · ${json.fetch_errors ?? 0} errori fetch`;
+
+    renderStats();
+    applyFilters();
+  } catch (err) {
+    els.headerSub.textContent = 'Dataset non ancora disponibile — lancia il workflow "Backtest Storico Universo" da GitHub Actions.';
+    els.emptyState.textContent = 'Nessun dataset trovato in data/trades_dataset.json.';
+    els.emptyState.style.display = 'block';
+    els.table.style.display = 'none';
+    els.footer.textContent = '—';
+  }
+}
+
+loadData();
+</script>
+
+</body>
+</html>
