@@ -1,0 +1,50 @@
+name: Cache Prezzi Grezzi
+
+on:
+  workflow_dispatch:
+    inputs:
+      limit_tickers:
+        description: 'Limita a N ticker (campione casuale) per un test veloce — lascia vuoto per tutto l''universo'
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+
+concurrency:
+  group: core-backtest-raw-prices
+  cancel-in-progress: false
+
+jobs:
+  fetch-raw-prices:
+    runs-on: ubuntu-latest
+    timeout-minutes: 200
+
+    steps:
+      - name: Checkout del codice
+        uses: actions/checkout@v4
+
+      - name: Configura Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Installa Dipendenze
+        run: |
+          python -m pip install --upgrade pip
+          pip install pandas numpy yfinance
+
+      - name: Esegui Fetch Prezzi Grezzi
+        env:
+          LIMIT_TICKERS: ${{ github.event.inputs.limit_tickers }}
+        run: |
+          python scripts/fetch_raw_prices.py
+
+      - name: Commit e Push della cache
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/raw_prices/
+          git commit -m "Aggiorna cache prezzi grezzi [skip ci]" || exit 0
+          git pull --rebase origin main
+          git push
