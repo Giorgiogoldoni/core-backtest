@@ -355,6 +355,7 @@ async function loadData() {
     renderStats();
     applyFilters();
   } catch (err) {
+    console.error('Errore caricamento dataset:', err);
     els.headerSub.textContent = 'Dataset non ancora disponibile — lancia il workflow "Backtest Storico Universo" da GitHub Actions.';
     els.emptyState.textContent = 'Nessun dataset trovato in data/trades_dataset.json.';
     els.emptyState.style.display = 'block';
