@@ -31,6 +31,7 @@ import os
 import time
 import urllib.request
 import datetime
+import math
 
 import yfinance as yf
 
@@ -394,6 +395,14 @@ def process_ticker(ticker_yf):
         if hist.empty or len(hist) < 100:
             return [], 0, "dati insufficienti"
 
+        # Scarta le barre con prezzi NaN (dati lacunosi yfinance) PRIMA di
+        # calcolare qualsiasi indicatore — un NaN a metà serie contaminerebbe
+        # KAMA/medie mobili cumulative da quel punto in poi, non solo il trade
+        # che lo contiene.
+        hist = hist.dropna(subset=["Open", "High", "Low", "Close"])
+        if len(hist) < 100:
+            return [], 0, "dati insufficienti dopo pulizia NaN"
+
         highs = [round(float(x), 4) for x in hist["High"].values]
         lows = [round(float(x), 4) for x in hist["Low"].values]
         closes = [round(float(x), 4) for x in hist["Close"].values]
@@ -421,6 +430,19 @@ def process_ticker(ticker_yf):
         return trades, discarded, None
     except Exception as e:
         return [], 0, str(e)
+
+
+def sanitize_nan(obj):
+    """NaN/Infinity sono validi in Python ma NON in JSON standard — JSON.parse()
+    del browser fallisce in silenzio (errore preso dal nostro try/catch) se il
+    dataset li contiene. Sostituiti con null prima di scrivere il file."""
+    if isinstance(obj, float):
+        return None if (math.isnan(obj) or math.isinf(obj)) else obj
+    if isinstance(obj, dict):
+        return {k: sanitize_nan(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [sanitize_nan(v) for v in obj]
+    return obj
 
 
 def main():
@@ -455,7 +477,7 @@ def main():
         "trades": all_trades,
     }
     with open(OUT_PATH, "w", encoding="utf-8") as f:
-        json.dump(output, f, ensure_ascii=False, separators=(",", ":"))
+        json.dump(sanitize_nan(output), f, ensure_ascii=False, separators=(",", ":"), allow_nan=False)
 
     print(f"\nCompletato: {len(all_trades)} trade salvati in data/trades_dataset.json")
     print(f"Scartati per discontinuità: {total_discarded} — errori fetch: {errors}/{len(instruments)}")
