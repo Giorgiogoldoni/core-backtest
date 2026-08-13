@@ -139,7 +139,7 @@ def window_crosses_discontinuity(entry_idx, exit_idx, bad_indices_set):
     return any(entry_idx < b <= exit_idx for b in bad_indices_set)
 
 
-def measure_forward_returns(closes, event_indices, bad_indices, horizons=HORIZONS):
+def measure_forward_returns(closes, event_indices, bad_indices, ticker, horizons=HORIZONS):
     """Per ogni occorrenza dell'evento, rendimento a +H giorni di borsa.
     Scarta le finestre che attraversano una discontinuità di prezzo nota."""
     bad_set = set(bad_indices)
@@ -158,24 +158,62 @@ def measure_forward_returns(closes, event_indices, bad_indices, horizons=HORIZON
                 continue
             per_horizon[h] = round((closes[j] / entry_price - 1) * 100, 3)
         if per_horizon:
-            results.append({"idx": i, "returns": per_horizon})
+            results.append({"idx": i, "ticker": ticker, "returns": per_horizon})
     return results
 
 
-def aggregate_returns(occurrences, horizons=HORIZONS):
-    """occurrences: lista di {'idx':.., 'returns': {5: pct, 10: pct, ...}}"""
+def compute_baseline(closes, bad_indices, horizons=HORIZONS):
+    """Rendimento medio a +H giorni calcolato su TUTTI i giorni disponibili
+    dello strumento (non solo quelli con evento) — serve come benchmark:
+    senza questo, un rendimento medio positivo post-evento potrebbe riflettere
+    solo il drift generale al rialzo dello strumento/mercato, non un vero
+    effetto dell'indicatore. Stessa esclusione delle finestre con discontinuità."""
+    bad_set = set(bad_indices)
+    n = len(closes)
+    baseline = {}
+    for h in horizons:
+        vals = []
+        for i in range(n - h):
+            entry_price = closes[i]
+            if not entry_price:
+                continue
+            if window_crosses_discontinuity(i, i + h, bad_set):
+                continue
+            vals.append((closes[i + h] / entry_price - 1) * 100)
+        baseline[h] = round(sum(vals) / len(vals), 3) if vals else None
+    return baseline
+
+
+def aggregate_returns(occurrences, baseline_by_ticker, horizons=HORIZONS):
+    """occurrences: lista di {'idx':.., 'ticker':.., 'returns': {5: pct, 10: pct, ...}}
+    baseline_by_ticker: {ticker: {5: pct, 10: pct, ...}} rendimento medio su TUTTI
+    i giorni di quello strumento (non solo quelli con evento).
+
+    Il benchmark qui è la media dei baseline dei singoli strumenti coinvolti,
+    pesata per numero di occorrenze — così è confrontabile con l'aggregato
+    evento (stesso mix di strumenti, stesso peso)."""
     agg = {}
     for h in horizons:
         vals = [o["returns"][h] for o in occurrences if h in o["returns"]]
+        baseline_vals = [
+            baseline_by_ticker[o["ticker"]][h]
+            for o in occurrences
+            if h in o["returns"] and baseline_by_ticker.get(o["ticker"], {}).get(h) is not None
+        ]
         if vals:
             wins = sum(1 for v in vals if v > 0)
+            avg_return = sum(vals) / len(vals)
+            avg_baseline = sum(baseline_vals) / len(baseline_vals) if baseline_vals else None
             agg[str(h)] = {
                 "n": len(vals),
                 "win_rate": round(wins / len(vals) * 100, 1),
-                "avg_return_pct": round(sum(vals) / len(vals), 3),
+                "avg_return_pct": round(avg_return, 3),
+                "baseline_avg_return_pct": round(avg_baseline, 3) if avg_baseline is not None else None,
+                "excess_return_pct": round(avg_return - avg_baseline, 3) if avg_baseline is not None else None,
             }
         else:
-            agg[str(h)] = {"n": 0, "win_rate": None, "avg_return_pct": None}
+            agg[str(h)] = {"n": 0, "win_rate": None, "avg_return_pct": None,
+                            "baseline_avg_return_pct": None, "excess_return_pct": None}
     return agg
 
 
@@ -208,6 +246,7 @@ def main():
     global_occ = {e: [] for e in EVENT_TYPES}
     category_occ = {e: {} for e in EVENT_TYPES}
     ticker_occ = {e: {} for e in EVENT_TYPES}
+    baseline_by_ticker = {}
 
     processed = 0
     for entry in files:
@@ -231,9 +270,10 @@ def main():
         ao = calc_ao_array(highs, lows)
 
         events = detect_events(closes, highs, lows, kama, sar_bull, ao)
+        baseline_by_ticker[ticker] = compute_baseline(closes, bad_indices)
 
         for etype in EVENT_TYPES:
-            occ = measure_forward_returns(closes, events[etype], bad_indices)
+            occ = measure_forward_returns(closes, events[etype], bad_indices, ticker)
             if not occ:
                 continue
             global_occ[etype].extend(occ)
@@ -248,11 +288,11 @@ def main():
 
     output_events = {}
     for etype in EVENT_TYPES:
-        aggregate = aggregate_returns(global_occ[etype])
-        by_category = {cat: aggregate_returns(occ) for cat, occ in category_occ[etype].items()}
+        aggregate = aggregate_returns(global_occ[etype], baseline_by_ticker)
+        by_category = {cat: aggregate_returns(occ, baseline_by_ticker) for cat, occ in category_occ[etype].items()}
         by_ticker = []
         for ticker, occ in ticker_occ[etype].items():
-            stats = aggregate_returns(occ)
+            stats = aggregate_returns(occ, baseline_by_ticker)
             n_total = len(occ)
             by_ticker.append({"ticker": ticker, "n_occurrences": n_total, **stats})
         by_ticker.sort(key=lambda x: x["n_occurrences"], reverse=True)
@@ -271,9 +311,12 @@ def main():
         "note": (
             "Event study su indicatori singoli (non trade completi). Rendimento "
             "misurato a N giorni di borsa dopo l'evento, finestre che attraversano "
-            "una discontinuità di prezzo nota vengono scartate. by_ticker include "
-            "n_occurrences: con pochi casi il win rate è statisticamente poco "
-            "affidabile, filtrare per soglia minima in fase di analisi."
+            "una discontinuità di prezzo nota vengono scartate. baseline_avg_return_pct "
+            "è il rendimento medio dello stesso strumento su TUTTI i giorni (non solo "
+            "quelli con evento) — excess_return_pct è la differenza: solo quello indica "
+            "un vero effetto dell'indicatore, non il semplice drift generale del mercato. "
+            "by_ticker include n_occurrences: con pochi casi il win rate è "
+            "statisticamente poco affidabile, filtrare per soglia minima in fase di analisi."
         ),
         "events": output_events,
     }
