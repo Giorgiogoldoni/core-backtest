@@ -61,14 +61,51 @@
   .excess-cell.neg { color: var(--red); font-weight: 700; }
   .table-wrap { max-height: 560px; overflow-y: auto; border: 1px solid var(--line); border-radius: 8px; }
   footer { margin-top: 20px; font-size: 11.5px; color: var(--ink-soft); }
+
+  .top-nav { display: flex; gap: 8px; margin-bottom: 18px; }
+  .top-nav a {
+    font-family: var(--sans); font-size: 12.5px; font-weight: 600; text-decoration: none;
+    padding: 7px 14px; border-radius: 7px; border: 1px solid var(--line-strong); color: var(--ink-soft);
+  }
+  .top-nav a.active { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+  .ticker-link { color: var(--accent); text-decoration: none; font-weight: 600; cursor: pointer; }
+  .ticker-link:hover { text-decoration: underline; }
+
+  #ticker-summary {
+    display: none; border: 1px solid var(--accent); border-radius: 10px;
+    padding: 14px 18px; margin-bottom: 20px; background: var(--accent-soft);
+  }
+  #ticker-summary .ts-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+  #ticker-summary .ts-header .ts-title { font-size: 14px; font-weight: 700; }
+  #ticker-summary table { background: #fff; border-radius: 6px; overflow: hidden; }
+  #ticker-summary thead th { background: #fff; }
 </style>
 </head>
 <body>
+
+<div class="top-nav">
+  <a href="index.html">📊 Trade Storici</a>
+  <a href="event-study.html" class="active">🔎 Event Study Indicatori</a>
+</div>
 
 <h1>core-backtest — Event Study Indicatori</h1>
 <div class="sub" id="header-sub">Caricamento…</div>
 <div class="warn-banner">
   ⚠️ Il <b>rendimento medio grezzo</b> di un evento può essere positivo semplicemente perché il mercato è salito nel periodo, non perché l'indicatore funzioni. Guarda sempre l'<b>eccesso rispetto al benchmark</b> (baseline = rendimento medio dello stesso strumento su tutti i giorni, non solo quelli con evento) — solo quello indica un vero effetto.
+</div>
+
+<div id="ticker-summary">
+  <div class="ts-header">
+    <div class="ts-title">Tutti gli indicatori per <span id="ts-ticker-name"></span></div>
+    <div style="display:flex;gap:8px;">
+      <a id="ts-view-trades" href="#" class="action" style="text-decoration:none;font-size:12px;padding:6px 12px;">📊 Vedi trade di questo ticker</a>
+      <a id="ts-clear" href="event-study.html" class="action" style="text-decoration:none;font-size:12px;padding:6px 12px;">✕ Rimuovi filtro</a>
+    </div>
+  </div>
+  <table>
+    <thead><tr><th>Indicatore</th><th>Occorrenze</th><th>Win Rate</th><th>Rendimento Medio</th><th>Baseline</th><th>Eccesso</th></tr></thead>
+    <tbody id="ts-body"></tbody>
+  </table>
 </div>
 
 <div class="toolbar">
@@ -144,10 +181,45 @@ const els = {
   tabs: document.getElementById('event-tabs'),
   horizonSummary: document.getElementById('horizon-summary'),
   categoryRow: document.getElementById('category-row'),
+  tickerSummary: document.getElementById('ticker-summary'),
+  tsTickerName: document.getElementById('ts-ticker-name'),
+  tsBody: document.getElementById('ts-body'),
 };
 
 function fmtPct(v) { return v == null ? '—' : (v >= 0 ? '+' : '') + v.toFixed(2) + '%'; }
 function excessClass(v) { return v == null ? '' : v >= 0 ? 'pos' : 'neg'; }
+
+function getUrlTicker() {
+  return new URLSearchParams(window.location.search).get('ticker');
+}
+
+function renderTickerSummary() {
+  const ticker = getUrlTicker();
+  if (!ticker) { els.tickerSummary.style.display = 'none'; return; }
+
+  const h = els.horizon.value;
+  els.tickerSummary.style.display = 'block';
+  els.tsTickerName.textContent = ticker;
+  document.getElementById('ts-view-trades').href = 'index.html?ticker=' + encodeURIComponent(ticker);
+
+  const rows = Object.entries(studyData.events).map(([etype, ev]) => {
+    const rec = ev.by_ticker.find(t => t.ticker === ticker);
+    const label = EVENT_LABELS[etype] || etype;
+    if (!rec || !rec[h] || !rec[h].n) {
+      return `<tr><td>${label}</td><td colspan="5" style="color:var(--ink-soft)">Nessuna occorrenza</td></tr>`;
+    }
+    const s = rec[h];
+    return `<tr>
+      <td>${label}</td>
+      <td class="mono">${s.n}</td>
+      <td class="mono">${s.win_rate}%</td>
+      <td class="mono">${fmtPct(s.avg_return_pct)}</td>
+      <td class="mono">${fmtPct(s.baseline_avg_return_pct)}</td>
+      <td class="mono excess-cell ${excessClass(s.excess_return_pct)}">${fmtPct(s.excess_return_pct)}</td>
+    </tr>`;
+  }).join('');
+  els.tsBody.innerHTML = rows;
+}
 
 function renderTabs() {
   els.tabs.innerHTML = Object.keys(studyData.events).map(etype =>
@@ -220,7 +292,7 @@ function renderTable() {
   }
 
   els.tbody.innerHTML = rows.map(r => `<tr>
-    <td class="mono"><b>${r.ticker}</b></td>
+    <td class="mono"><a class="ticker-link" href="?ticker=${encodeURIComponent(r.ticker)}">${r.ticker}</a></td>
     <td class="mono">${r.n_occurrences}</td>
     <td class="mono">${r.win_rate}%</td>
     <td class="mono">${fmtPct(r.avg_return_pct)}</td>
@@ -233,6 +305,7 @@ function renderAll() {
   renderTabs();
   renderHorizonSummary();
   renderCategoryRow();
+  renderTickerSummary();
   renderTable();
 }
 
@@ -270,6 +343,9 @@ async function loadData() {
     if (!res.ok) throw new Error('non trovato');
     studyData = await res.json();
     currentEvent = Object.keys(studyData.events)[0];
+
+    const urlTicker = getUrlTicker();
+    if (urlTicker) els.search.value = urlTicker;
 
     const genDate = new Date(studyData.generated_at).toLocaleString('it-IT');
     els.headerSub.textContent = `Generato il ${genDate} · ${studyData.instruments_processed} strumenti · orizzonti ${studyData.horizons_trading_days.join('/')} giorni di borsa`;
