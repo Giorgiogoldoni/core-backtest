@@ -90,9 +90,23 @@
   .empty-state { text-align: center; padding: 60px 0; color: var(--ink-soft); }
   .table-wrap { max-height: 640px; overflow-y: auto; border: 1px solid var(--line); border-radius: 8px; }
   footer { margin-top: 20px; font-size: 11.5px; color: var(--ink-soft); }
+
+  .top-nav { display: flex; gap: 8px; margin-bottom: 18px; }
+  .top-nav a {
+    font-family: var(--sans); font-size: 12.5px; font-weight: 600; text-decoration: none;
+    padding: 7px 14px; border-radius: 7px; border: 1px solid var(--line-strong); color: var(--ink-soft);
+  }
+  .top-nav a.active { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+  .ticker-link { color: var(--accent); text-decoration: none; font-weight: 600; cursor: pointer; }
+  .ticker-link:hover { text-decoration: underline; }
 </style>
 </head>
 <body>
+
+<div class="top-nav">
+  <a href="index.html" class="active">📊 Trade Storici</a>
+  <a href="event-study.html">🔎 Event Study Indicatori</a>
+</div>
 
 <h1>core-backtest — Dataset Trade Storici</h1>
 <div class="sub" id="header-sub">Backtest motore di segnale su tutto l'universo core (escl. bond/money-market) · Caricamento…</div>
@@ -276,7 +290,7 @@ function renderTable(rows) {
     const rsi = t.features_at_entry?.rsi;
     const er = t.features_at_entry?.er;
     return `<tr>
-      <td class="mono"><b>${t.ticker}</b></td>
+      <td class="mono"><a class="ticker-link" href="event-study.html?ticker=${encodeURIComponent(t.ticker)}" title="Vedi tutti gli indicatori per questo ticker">${t.ticker}</a></td>
       <td class="mono">${t.entry_date}</td>
       <td class="mono">${t.exit_date}</td>
       <td><span class="badge ${tierBadgeClass(t.entry_tier)}">${t.entry_tier}</span></td>
@@ -347,6 +361,9 @@ async function loadData() {
     const json = await res.json();
     meta = json;
     allTrades = json.trades || [];
+
+    const urlTicker = new URLSearchParams(window.location.search).get('ticker');
+    if (urlTicker) els.search.value = urlTicker;
 
     const genDate = new Date(json.generated_at).toLocaleString('it-IT');
     els.headerSub.textContent = `Generato il ${genDate} · storico ${json.history_period || '—'} · esclusi: ${(json.excluded_asset_classes || []).join(', ')}`;
