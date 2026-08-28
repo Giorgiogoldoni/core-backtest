@@ -165,6 +165,8 @@
         <th data-key="exit_price">Prezzo Uscita</th>
         <th data-key="return_pct">Rendimento</th>
         <th data-key="days_held">Giorni</th>
+        <th data-key="chandelier_return_pct">Uscita Chandelier</th>
+        <th data-key="chandelier_delta">Δ vs Attuale</th>
         <th data-key="rsi">RSI Entrata</th>
         <th data-key="er">ER Entrata</th>
       </tr>
@@ -289,6 +291,12 @@ function renderTable(rows) {
     const isWin = t.return_pct > 0;
     const rsi = t.features_at_entry?.rsi;
     const er = t.features_at_entry?.er;
+    const hasChandelier = t.chandelier_return_pct != null;
+    const chDelta = hasChandelier && t.return_pct != null ? t.chandelier_return_pct - t.return_pct : null;
+    const chLabel = t.chandelier_still_open ? 'Ancora aperta'
+      : t.chandelier_discarded_discontinuity ? 'Scartato (discontinuità)'
+      : hasChandelier ? (t.chandelier_return_pct >= 0 ? '+' : '') + t.chandelier_return_pct.toFixed(2) + '%'
+      : '—';
     return `<tr>
       <td class="mono"><a class="ticker-link" href="event-study.html?ticker=${encodeURIComponent(t.ticker)}" title="Vedi tutti gli indicatori per questo ticker">${t.ticker}</a></td>
       <td class="mono">${t.entry_date}</td>
@@ -299,6 +307,8 @@ function renderTable(rows) {
       <td class="mono">${t.exit_price != null ? t.exit_price.toFixed(4) : '—'}</td>
       <td class="mono"><span class="badge ${isWin ? 'win' : 'loss'}">${t.return_pct != null ? (t.return_pct >= 0 ? '+' : '') + t.return_pct.toFixed(2) + '%' : '—'}</span></td>
       <td class="mono">${t.days_held ?? '—'}</td>
+      <td class="mono">${chLabel}</td>
+      <td class="mono" style="${chDelta == null ? '' : chDelta >= 0 ? 'color:var(--green)' : 'color:var(--red)'}">${chDelta != null ? (chDelta >= 0 ? '+' : '') + chDelta.toFixed(2) + '%' : '—'}</td>
       <td class="mono">${rsi != null ? rsi.toFixed(1) : '—'}</td>
       <td class="mono">${er != null ? (er * 100).toFixed(0) + '%' : '—'}</td>
     </tr>`;
@@ -319,6 +329,9 @@ function exportExcel() {
     'Prezzo Uscita': t.exit_price,
     'Rendimento %': t.return_pct,
     'Giorni Detenzione': t.days_held,
+    'Uscita Chandelier %': t.chandelier_return_pct,
+    'Chandelier Ancora Aperta': t.chandelier_still_open,
+    'Delta Chandelier vs Attuale %': (t.chandelier_return_pct != null && t.return_pct != null) ? (t.chandelier_return_pct - t.return_pct) : null,
     'RSI Entrata': t.features_at_entry?.rsi,
     'ER Entrata': t.features_at_entry?.er,
     'Baffetti Entrata': t.features_at_entry?.baff,
