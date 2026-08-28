@@ -1,0 +1,38 @@
+name: Confluence Study
+
+on:
+  workflow_dispatch: # Solo manuale — nessun fetch yfinance, gira su cache già committata
+
+permissions:
+  contents: write
+
+concurrency:
+  group: core-backtest-confluence-study
+  cancel-in-progress: false
+
+jobs:
+  run-confluence-study:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout del codice
+        uses: actions/checkout@v4
+
+      - name: Configura Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Esegui Confluence Study (solo cache locale)
+        run: |
+          python scripts/confluence_study.py
+
+      - name: Commit e Push dei risultati
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/confluence_study.json
+          git commit -m "Aggiorna confluence study [skip ci]" || exit 0
+          git pull --rebase origin main
+          git push
