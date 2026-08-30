@@ -1,0 +1,38 @@
+name: Aggiungi Benchmark ai Trade
+
+on:
+  workflow_dispatch: # Solo manuale — nessun fetch yfinance, gira su dati già committati
+
+permissions:
+  contents: write
+
+concurrency:
+  group: core-backtest-trade-benchmark
+  cancel-in-progress: false
+
+jobs:
+  add-benchmark:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout del codice
+        uses: actions/checkout@v4
+
+      - name: Configura Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Aggiungi Benchmark ai Trade
+        run: |
+          python scripts/add_trade_benchmark.py
+
+      - name: Commit e Push
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/trades_dataset.json
+          git commit -m "Aggiunge benchmark/eccesso ai trade [skip ci]" || exit 0
+          git pull --rebase origin main
+          git push
