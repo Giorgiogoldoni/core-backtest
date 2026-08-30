@@ -1,0 +1,38 @@
+name: REV1 Backtest
+
+on:
+  workflow_dispatch: # Solo manuale — nessun fetch yfinance, gira su cache già committata
+
+permissions:
+  contents: write
+
+concurrency:
+  group: core-backtest-rev1
+  cancel-in-progress: false
+
+jobs:
+  run-rev1-backtest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout del codice
+        uses: actions/checkout@v4
+
+      - name: Configura Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Esegui Backtest REV1 (solo cache locale)
+        run: |
+          python scripts/rev1_backtest.py
+
+      - name: Commit e Push dei risultati
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/rev1_trades.json
+          git commit -m "Aggiorna backtest REV1 [skip ci]" || exit 0
+          git pull --rebase origin main
+          git push
