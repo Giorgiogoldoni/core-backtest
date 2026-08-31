@@ -12,13 +12,16 @@ ao[i-1]) — CATTURA IL REBOUND, non il trend già confermato. A
 differenza di BUY1/BUY2 (che richiedono prezzo sopra KAMA e momentum
 già positivo), REV1 entra PRIMA della conferma di trend.
 
-Regola d'uscita: RIUSA la logica SAR esistente (prima barra in cui il
-SAR flippa da rialzista a ribassista dopo l'ingresso) — scelta di
-partenza pragmatica, NON necessariamente ottimale per un ingresso
-mean-reversion (rischio dichiarato: potrebbe uscire troppo tardi o
-troppo presto rispetto a un'uscita pensata su misura). Etichettata
-EXIT1 se il prezzo è ancora sopra KAMA al momento dell'uscita, EXIT2
-se sotto — stessa convenzione del motore esistente.
+Regola d'uscita: RSI(14) torna sopra 60 — anch'essa VALIDATA fuori
+campione (rev1_exit_comparison.py + out-of-sample: eccesso in-sample
++1.922%, out-of-sample +1.899%, tasso di posizioni mai risolte 2.6%,
+detenzione media 14.5gg — scelta deliberatamente non aggressiva:
+soglie più alte (70/80) mostravano eccesso apparente più alto ma
+gonfiato da un tasso crescente di trade esclusi come "mai risolti",
+stesso bias statistico scovato nel candidato "target fisso" scartato).
+Confrontata con altri 3 candidati (target fisso +5% — scartato per
+bias di selezione, time stop 15gg — solido ma inferiore, Chandelier
+Exit 3xATR — bocciato: mediana negativa nonostante media positiva).
 
 Legge SOLO la cache locale (data/raw_prices/*.json) — NESSUNA chiamata
 a yfinance. Calcola anche baseline/eccesso per ogni trade nello stesso
@@ -38,68 +41,13 @@ BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 RAW_DIR = os.path.join(BASE_DIR, "data", RAW_DIR_NAME)
 OUT_PATH = os.path.join(BASE_DIR, "data", "rev1_trades.json")
 
-RSI_THRESHOLD = 35  # soglia validata fuori campione (vedi nota sopra)
+RSI_ENTRY_THRESHOLD = 35    # soglia d'ingresso, validata fuori campione
+RSI_EXIT_THRESHOLD = 60     # soglia d'uscita, validata fuori campione
 
 
 # ═══════════════════════════════════════════════════════
 #  INDICATORI — stessa logica degli altri script del repo
 # ═══════════════════════════════════════════════════════
-
-def calc_kama(close, n=10, fast=2, slow=30):
-    fast_sc = 2 / (fast + 1)
-    slow_sc = 2 / (slow + 1)
-    kama = [None] * len(close)
-    if len(close) <= n:
-        return kama
-    kama[n] = close[n]
-    for i in range(n + 1, len(close)):
-        direction = abs(close[i] - close[i - n])
-        volatility = sum(abs(close[j] - close[j - 1]) for j in range(i - n + 1, i + 1))
-        er = direction / volatility if volatility != 0 else 0
-        sc = (er * (fast_sc - slow_sc) + slow_sc) ** 2
-        kama[i] = kama[i - 1] + sc * (close[i] - kama[i - 1])
-    return kama
-
-
-def calc_sar_array(high, low, af0=0.02, af_max=0.20):
-    n = len(high)
-    bull_arr = [None] * n
-    if n < 5:
-        return bull_arr
-    sar = low[0]
-    ep = high[0]
-    af = af0
-    bull = True
-    bull_arr[0] = bull
-    for i in range(1, n):
-        if bull:
-            new_sar = sar + af * (ep - sar)
-            new_sar = min(new_sar, low[max(0, i - 1)], low[max(0, i - 2)])
-            if low[i] < new_sar:
-                bull = False
-                new_sar = ep
-                ep = low[i]
-                af = af0
-            else:
-                if high[i] > ep:
-                    ep = high[i]
-                    af = min(af + af0, af_max)
-        else:
-            new_sar = sar + af * (ep - sar)
-            new_sar = max(new_sar, high[max(0, i - 1)], high[max(0, i - 2)])
-            if high[i] > new_sar:
-                bull = True
-                new_sar = ep
-                ep = high[i]
-                af = af0
-            else:
-                if low[i] < ep:
-                    ep = low[i]
-                    af = min(af + af0, af_max)
-        sar = new_sar
-        bull_arr[i] = bull
-    return bull_arr
-
 
 def calc_ao_array(high, low):
     mid = [(h + l) / 2 for h, l in zip(high, low)]
@@ -177,7 +125,7 @@ def window_crosses_discontinuity(entry_idx, exit_idx, bad_indices_set):
     return any(entry_idx < b <= exit_idx for b in bad_indices_set)
 
 
-def extract_rev1_trades(dates, closes, kama, sar_bull, rsi14, ao, er, baff, atr_arr, volumes, bad_indices):
+def extract_rev1_trades(dates, closes, rsi14, ao, er, baff, atr_arr, volumes, bad_indices):
     n = len(closes)
     bad_set = set(bad_indices)
     trades = []
@@ -193,20 +141,20 @@ def extract_rev1_trades(dates, closes, kama, sar_bull, rsi14, ao, er, baff, atr_
     while i < n:
         if not in_position:
             entry_ok = (
-                rsi14[i] is not None and rsi14[i] < RSI_THRESHOLD
+                rsi14[i] is not None and rsi14[i] < RSI_ENTRY_THRESHOLD
                 and ao[i] is not None and ao[i - 1] is not None and ao[i] > ao[i - 1]
-                and sar_bull[i] is not None
             )
             if entry_ok:
                 entry_idx = i
-                # Cerca la prima barra successiva in cui il SAR flippa da rialzista a ribassista
+                # Cerca la prima barra successiva in cui l'RSI torna sopra la soglia d'uscita
                 exit_idx = None
                 j = i + 1
                 while j < n:
-                    if sar_bull[j] is not None and sar_bull[j - 1] is not None:
-                        if not sar_bull[j] and sar_bull[j - 1]:
-                            exit_idx = j
-                            break
+                    if j in bad_set:
+                        break  # discontinuità raggiunta prima di un'uscita chiara
+                    if rsi14[j] is not None and rsi14[j] >= RSI_EXIT_THRESHOLD:
+                        exit_idx = j
+                        break
                     j += 1
 
                 if exit_idx is not None:
@@ -218,12 +166,11 @@ def extract_rev1_trades(dates, closes, kama, sar_bull, rsi14, ao, er, baff, atr_
                     entry_price = closes[entry_idx]
                     exit_price = closes[exit_idx]
                     return_pct = ((exit_price / entry_price) - 1) * 100 if entry_price else None
-                    exit_tier = "EXIT1" if (kama[exit_idx] and closes[exit_idx] > kama[exit_idx]) else "EXIT2"
                     vol_avg = vol_sma20[entry_idx]
 
                     trades.append({
                         "entry_date": dates[entry_idx], "exit_date": dates[exit_idx],
-                        "entry_tier": "REV1", "exit_tier": exit_tier,
+                        "entry_tier": "REV1", "exit_tier": "RSI_RECOVER",
                         "entry_price": round(entry_price, 4), "exit_price": round(exit_price, 4),
                         "return_pct": round(return_pct, 2) if return_pct is not None else None,
                         "days_held": exit_idx - entry_idx, "is_open": False,
@@ -273,7 +220,7 @@ def sanitize_nan(obj):
 def main():
     now = datetime.datetime.now(datetime.timezone.utc)
     print(f"rev1_backtest.py — {now.isoformat()}")
-    print(f"Soglia RSI: {RSI_THRESHOLD} (validata fuori campione)")
+    print(f"Soglia ingresso RSI: {RSI_ENTRY_THRESHOLD} — soglia uscita RSI: {RSI_EXIT_THRESHOLD} (entrambe validate fuori campione)")
 
     index_path = os.path.join(RAW_DIR, "index.json")
     if not os.path.exists(index_path):
@@ -301,8 +248,6 @@ def main():
         dates, closes, highs, lows, volumes = rec["dates"], rec["c"], rec["h"], rec["l"], rec["v"]
         bad_indices = rec.get("bad_indices", [])
 
-        kama = calc_kama(closes)
-        sar_bull = calc_sar_array(highs, lows)
         ao = calc_ao_array(highs, lows)
         rsi14 = calc_rsi_array(closes)
         er = calc_er_array(closes)
@@ -310,7 +255,7 @@ def main():
         atr_arr = calc_atr(highs, lows, closes, 14)
 
         trades, discarded = extract_rev1_trades(
-            dates, closes, kama, sar_bull, rsi14, ao, er, baff, atr_arr, volumes, bad_indices
+            dates, closes, rsi14, ao, er, baff, atr_arr, volumes, bad_indices
         )
 
         bad_set = set(bad_indices)
@@ -339,9 +284,10 @@ def main():
 
     output = {
         "generated_at": now.isoformat(),
-        "rsi_threshold": RSI_THRESHOLD,
-        "entry_rule": f"RSI(14) < {RSI_THRESHOLD} + AO in miglioramento (ao[i] > ao[i-1])",
-        "exit_rule": "Prima barra in cui il SAR flippa da rialzista a ribassista dopo l'ingresso (riuso logica esistente, non ottimizzata per REV1)",
+        "rsi_entry_threshold": RSI_ENTRY_THRESHOLD,
+        "rsi_exit_threshold": RSI_EXIT_THRESHOLD,
+        "entry_rule": f"RSI(14) < {RSI_ENTRY_THRESHOLD} + AO in miglioramento (ao[i] > ao[i-1])",
+        "exit_rule": f"RSI(14) torna sopra {RSI_EXIT_THRESHOLD} — validata fuori campione (eccesso out-of-sample +1.899%, tasso non risolti 2.6%)",
         "instruments_scanned": processed,
         "trades_count": len(all_trades),
         "trades_discarded_discontinuity": total_discarded,
