@@ -294,7 +294,7 @@ function renderTable(rows) {
     const baseline = t.baseline_avg_return_pct;
     const excess = t.excess_return_pct;
     return `<tr>
-      <td class="mono"><a class="ticker-link" href="event-study.html?ticker=${encodeURIComponent(t.ticker)}" title="Vedi tutti gli indicatori per questo ticker">${t.ticker}</a></td>
+      <td class="mono"><a class="ticker-link" href="#" onclick="openChartModal('${t.ticker}', ''); return false;" title="Vedi il grafico standard con i punti di ingresso/uscita">${t.ticker}</a></td>
       <td class="mono">${t.entry_date}</td>
       <td class="mono">${t.exit_date}</td>
       <td><span class="badge ${tierBadgeClass(t.entry_tier)}">${t.entry_tier}</span></td>
@@ -391,6 +391,9 @@ async function loadData() {
 
 loadData();
 </script>
+
+<script>const CHART_BASE = 'data/charts/';</script>
+<script src="chart_widget.js"></script>
 
 </body>
 </html>
